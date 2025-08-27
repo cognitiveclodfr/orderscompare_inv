@@ -99,45 +99,46 @@ def filter_by_date_range(df, start_date, end_date):
 from openpyxl.styles import Font, Alignment
 from openpyxl.utils import get_column_letter
 
-def create_excel_report(df, output_filename):
-    """Formats and saves the final DataFrame to an Excel file."""
-    if df.empty:
+def create_excel_report(sheets_data, output_filename):
+    """Formats and saves one or more DataFrames to a multi-sheet Excel file."""
+    if not sheets_data:
         print("No data to save, skipping Excel report generation.")
         return
 
     try:
         with pd.ExcelWriter(output_filename, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Processed Orders')
+            for sheet_name, df in sheets_data.items():
+                if df.empty:
+                    continue  # Don't create a sheet for an empty DataFrame
+                df.to_excel(writer, index=False, sheet_name=sheet_name)
 
-            # Access the workbook and worksheet objects for formatting
-            workbook = writer.book
-            worksheet = writer.sheets['Processed Orders']
+            # Apply formatting to each sheet
+            for sheet_name, worksheet in writer.sheets.items():
+                df = sheets_data[sheet_name] # Get the corresponding DataFrame
+                # 1. Apply formatting: Bold headers, freeze top row, add filters
+                header_font = Font(bold=True)
+                for cell in worksheet["1:1"]:
+                    cell.font = header_font
 
-            # 1. Apply formatting: Bold headers, freeze top row, add filters
-            header_font = Font(bold=True)
-            for cell in worksheet["1:1"]:
-                cell.font = header_font
+                worksheet.freeze_panes = 'A2'
+                worksheet.auto_filter.ref = worksheet.dimensions
 
-            worksheet.freeze_panes = 'A2'
-            worksheet.auto_filter.ref = worksheet.dimensions
-
-            # 2. Auto-fit column widths and apply specific formats
-            for i, col in enumerate(df.columns, 1):
-                column_letter = get_column_letter(i)
-
-                if col == 'Fulfilled at':
-                    # Apply date format and set width
-                    worksheet.column_dimensions[column_letter].width = 20
-                    for cell in worksheet[column_letter][1:]:
-                        if cell.value:
-                            cell.number_format = 'DD.MM.YYYY HH:MM'
-                else:
-                    # Auto-fit other columns
-                    if not df[col].empty:
-                        max_length = max(df[col].astype(str).map(len).max(), len(col))
+                # 2. Auto-fit column widths and apply specific formats
+                for i, col in enumerate(df.columns, 1):
+                    column_letter = get_column_letter(i)
+                    if col == 'Fulfilled at':
+                        # Apply date format and set width
+                        worksheet.column_dimensions[column_letter].width = 20
+                        for cell in worksheet[column_letter][1:]:
+                            if cell.value:
+                                cell.number_format = 'DD.MM.YYYY HH:MM'
                     else:
-                        max_length = len(col)
-                    worksheet.column_dimensions[column_letter].width = max_length + 2
+                        # Auto-fit other columns
+                        if not df[col].empty:
+                            max_length = max(df[col].astype(str).map(len).max(), len(col))
+                        else:
+                            max_length = len(col)
+                        worksheet.column_dimensions[column_letter].width = max_length + 2
 
         print(f"Successfully created Excel report: {output_filename}")
 
@@ -174,8 +175,16 @@ def main():
     existing_columns = [col for col in final_columns if col in filtered_df.columns]
     report_df = filtered_df[existing_columns]
 
-    # 4. Create the Excel report
+    # 4. Create DataFrames for Excel sheets
     if not report_df.empty:
+        # Create a second DataFrame excluding "Package protection"
+        df_no_protection = report_df[~report_df['Lineitem name'].str.contains("Package protection", na=False)].copy()
+
+        sheets_data = {
+            'All Orders': report_df,
+            'Without Package Protection': df_no_protection
+        }
+
         # Prompt user for output filename
         prompt_message = "Enter the desired name for the output Excel file (e.g., report.xlsx).\nPress Enter to use a default name: "
         output_filename_from_user = input(prompt_message)
@@ -191,7 +200,7 @@ def main():
             output_filename = f"processed_orders_{current_date}.xlsx"
             print(f"No filename provided. Using default: {output_filename}")
 
-        create_excel_report(report_df, output_filename)
+        create_excel_report(sheets_data, output_filename)
     else:
         print("Script finished. No orders to process into an Excel file.")
 
