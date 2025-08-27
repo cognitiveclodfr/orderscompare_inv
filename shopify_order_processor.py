@@ -12,6 +12,7 @@ from datetime import datetime
 import pandas as pd
 # openpyxl is used by pandas for Excel writing, so we import it to ensure it's available.
 import openpyxl
+from tqdm import tqdm
 
 def validate_date_format(date_string):
     """Validates that the date string is in DD.MM.YYYY format and returns a datetime object or None."""
@@ -60,6 +61,9 @@ def filter_by_date_range(df, start_date, end_date):
     """Filters the DataFrame based on the 'Fulfilled at' date column."""
     print(f"Initial record count: {len(df)}")
 
+    # Forward-fill 'Fulfilled at' to propagate the date to all line items of an order.
+    df['Fulfilled at'] = df.groupby('Name')['Fulfilled at'].ffill()
+
     # Drop rows with no fulfillment date, as they are not relevant for the report.
     original_count = len(df)
     df.dropna(subset=['Fulfilled at'], inplace=True)
@@ -91,6 +95,60 @@ def filter_by_date_range(df, start_date, end_date):
         print("Warning: No orders found within the specified date range.")
 
     return filtered_df
+
+def aggregate_orders(df):
+    """Groups order line items into single orders and aggregates the data."""
+    if df.empty:
+        print("No data to aggregate.")
+        return pd.DataFrame()
+
+    # Configure tqdm for pandas
+    tqdm.pandas(desc="Aggregating Orders")
+
+    # Define aggregation functions
+    # Using a lambda with a check for all-NaN to avoid warnings
+    def join_unique(x):
+        return '\n'.join(x.dropna().astype(str).unique())
+
+    aggregations = {
+        'Fulfilled at': lambda x: x.iloc[0],
+        'Lineitem name': lambda x: join_unique(x),
+        'Lineitem quantity': 'sum',
+        'Lineitem sku': lambda x: join_unique(x),
+        'Total': lambda x: x.iloc[0]
+    }
+
+    # Group by order name and apply aggregations with a progress bar
+    aggregated_df = df.groupby('Name').progress_apply(lambda x: x.agg(aggregations)).reset_index()
+
+    # Calculate the number of unique items (positions)
+    # This needs to be done separately as it requires a nunique on the original group
+    unique_items_count = df.groupby('Name')['Lineitem name'].nunique().reset_index(name='Unique Items')
+
+    # Merge the unique items count back into the aggregated dataframe
+    aggregated_df = pd.merge(aggregated_df, unique_items_count, on='Name')
+
+    # Rename columns to the final English names
+    aggregated_df.rename(columns={
+        'Name': 'Order Number',
+        'Fulfilled at': 'Fulfillment Date',
+        'Unique Items': 'Unique Items',
+        'Lineitem quantity': 'Total Quantity',
+        'Lineitem name': 'Article List',
+        'Lineitem sku': 'Article SKUs',
+        'Total': 'Grand Total'
+    }, inplace=True)
+
+    # Reorder columns to the desired output format
+    final_columns = [
+        'Order Number', 'Fulfillment Date', 'Unique Items', 'Total Quantity',
+        'Article List', 'Article SKUs', 'Grand Total'
+    ]
+    aggregated_df = aggregated_df[final_columns]
+
+    print(f"Successfully aggregated {len(aggregated_df)} orders.")
+
+    return aggregated_df
 
 from openpyxl.styles import Font, Alignment
 from openpyxl.utils import get_column_letter
@@ -160,8 +218,11 @@ def main():
     # 2. Filter orders by date range
     filtered_df = filter_by_date_range(source_df, start_date, end_date)
 
-    # 3. Create the Excel report
-    if not filtered_df.empty:
+    # 3. Aggregate order data
+    aggregated_df = aggregate_orders(filtered_df)
+
+    # 4. Create the Excel report
+    if not aggregated_df.empty:
         # Prompt user for output filename
         prompt_message = "Enter the desired name for the output Excel file (e.g., report.xlsx).\nPress Enter to use a default name: "
         output_filename_from_user = input(prompt_message)
@@ -177,7 +238,7 @@ def main():
             output_filename = f"processed_orders_{current_date}.xlsx"
             print(f"No filename provided. Using default: {output_filename}")
 
-        create_excel_report(filtered_df, output_filename)
+        create_excel_report(aggregated_df, output_filename)
     else:
         print("Script finished. No orders to process into an Excel file.")
 
