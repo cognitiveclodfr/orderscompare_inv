@@ -7,6 +7,7 @@ and format them into a clean Excel report.
 """
 import sys
 import os
+import logging
 from datetime import datetime
 
 import pandas as pd
@@ -67,6 +68,10 @@ def load_and_validate_csv(file_path):
         sys.exit(1)
 
     print("Successfully loaded and validated the input file.")
+    logging.info("CSV loaded successfully. DataFrame Info:")
+    logging.info(f"Columns: {df.columns.tolist()}")
+    logging.info(f"Data Types:\n{df.dtypes.to_string()}")
+    logging.info(f"Head:\n{df.head().to_string()}")
     return df
 
 def filter_by_date_range(df, start_date, end_date):
@@ -126,6 +131,8 @@ def calculate_costs(df, cost_first_sku, cost_next_sku, cost_per_piece):
         df['Total Order Cost'] = 0
         return df
 
+    logging.info(f"Head of billable items:\n{billable_df.head().to_string()}")
+
     # Group by order to get SKU counts and quantities from billable items
     order_summary = billable_df.groupby('Name').agg(
         Billable_Unique_SKUs=('Lineitem sku', 'nunique'),
@@ -141,6 +148,8 @@ def calculate_costs(df, cost_first_sku, cost_next_sku, cost_per_piece):
     order_summary['SKU Cost'] = order_summary['Billable_Unique_SKUs'].apply(calculate_sku_cost)
     order_summary['Quantity Cost'] = order_summary['Billable_Total_Quantity'] * cost_per_piece
     order_summary['Total Order Cost'] = order_summary['SKU Cost'] + order_summary['Quantity Cost']
+
+    logging.info(f"Order summary for cost calculation:\n{order_summary.to_string()}")
 
     # Merge the calculated costs back into the original DataFrame
     df_with_costs = pd.merge(df, order_summary, on='Name', how='left')
@@ -177,6 +186,12 @@ def create_invoice_summary(df_with_costs, cost_first_sku, cost_next_sku, cost_pe
 
     # Calculate total counts of first SKUs and next SKUs
     total_billable_skus = order_costs['Billable_Unique_SKUs'].sum()
+    logging.info("Creating invoice summary...")
+    logging.info(f"Total Orders: {total_orders}")
+    logging.info(f"Total Billable SKUs: {total_billable_skus}")
+    logging.info(f"Total SKU Cost: {total_sku_cost}")
+    logging.info(f"Total Quantity Cost: {total_quantity_cost}")
+    logging.info(f"Grand Total: {grand_total_cost}")
     total_first_skus = total_orders if total_billable_skus > 0 else 0
     total_next_skus = total_billable_skus - total_first_skus
 
@@ -286,6 +301,8 @@ def create_excel_report(sheets_data, output_filename):
 
                 # --- Advanced Border Formatting (conditional) ---
                 if sheet_name in ['All Orders', 'Without Package Protection', 'Cost Calculation']:
+                    # Sort by Name to ensure contiguous groups for border logic
+                    df.sort_values(by='Name', inplace=True)
                     # Group by order number to identify row groups
                     order_groups = df.groupby((df['Name'] != df['Name'].shift()).cumsum())
 
@@ -324,6 +341,15 @@ def create_excel_report(sheets_data, output_filename):
 
 def main():
     """Main function to run the script."""
+    # Configure logging
+    logging.basicConfig(
+        filename='debug_log.txt',
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        filemode='w'  # Overwrite log file each run
+    )
+    logging.info("Script started.")
+
     print("Starting Shopify Order Processor...")
 
     # Get start and end dates from user
