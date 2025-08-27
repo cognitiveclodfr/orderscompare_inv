@@ -60,34 +60,34 @@ def filter_by_date_range(df, start_date, end_date):
     """Filters the DataFrame based on the 'Fulfilled at' date column."""
     print(f"Initial record count: {len(df)}")
 
-    # Create a temporary column with forward-filled dates for accurate filtering
-    df['temp_fulfilled_at'] = df.groupby('Name')['Fulfilled at'].ffill()
+    # Forward-fill key columns to propagate their values to all line items of an order.
+    ffill_cols = ['Fulfilled at', 'Fulfillment Status', 'Financial Status']
+    for col in ffill_cols:
+        if col in df.columns:
+            df[col] = df.groupby('Name')[col].ffill()
 
-    # Drop rows where even the forward-filled date is empty (unfulfilled orders)
+    # Drop rows with no fulfillment date after f-fill (unfulfilled orders)
     original_count = len(df)
-    df.dropna(subset=['temp_fulfilled_at'], inplace=True)
+    df.dropna(subset=['Fulfilled at'], inplace=True)
     if len(df) < original_count:
         print(f"Dropped {original_count - len(df)} unfulfilled orders.")
 
-    # Convert 'temp_fulfilled_at' to datetime objects.
-    df['temp_fulfilled_at'] = pd.to_datetime(df['temp_fulfilled_at'], errors='coerce')
-
-    # After parsing, make the column timezone-naive to allow comparison.
-    if pd.api.types.is_datetime64_any_dtype(df['temp_fulfilled_at']) and df['temp_fulfilled_at'].dt.tz is not None:
-        df['temp_fulfilled_at'] = df['temp_fulfilled_at'].dt.tz_localize(None)
+    # Convert 'Fulfilled at' to datetime objects.
+    df['Fulfilled at'] = pd.to_datetime(df['Fulfilled at'], errors='coerce')
 
     # Drop rows that could not be parsed into a valid date.
     original_count = len(df)
-    df.dropna(subset=['temp_fulfilled_at'], inplace=True)
+    df.dropna(subset=['Fulfilled at'], inplace=True)
     if len(df) < original_count:
         print(f"Dropped {original_count - len(df)} rows with invalid date format in 'Fulfilled at'.")
 
-    # Filter the DataFrame using the temporary date column
-    mask = (df['temp_fulfilled_at'].dt.normalize() >= start_date) & (df['temp_fulfilled_at'].dt.normalize() <= end_date)
-    filtered_df = df.loc[mask].copy()
+    # After parsing, make the column timezone-naive to allow comparison.
+    if pd.api.types.is_datetime64_any_dtype(df['Fulfilled at']) and df['Fulfilled at'].dt.tz is not None:
+        df['Fulfilled at'] = df['Fulfilled at'].dt.tz_localize(None)
 
-    # Drop the temporary column before returning
-    filtered_df.drop(columns=['temp_fulfilled_at'], inplace=True)
+    # Filter the DataFrame to include only orders within the specified date range.
+    mask = (df['Fulfilled at'].dt.normalize() >= start_date) & (df['Fulfilled at'].dt.normalize() <= end_date)
+    filtered_df = df.loc[mask].copy()
 
     print(f"Record count after filtering by date: {len(filtered_df)}")
 
