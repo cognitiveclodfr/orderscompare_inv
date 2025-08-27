@@ -7,7 +7,6 @@ and format them into a clean Excel report.
 """
 import sys
 import os
-import logging
 from datetime import datetime
 
 import pandas as pd
@@ -68,10 +67,6 @@ def load_and_validate_csv(file_path):
         sys.exit(1)
 
     print("Successfully loaded and validated the input file.")
-    logging.info("CSV loaded successfully. DataFrame Info:")
-    logging.info(f"Columns: {df.columns.tolist()}")
-    logging.info(f"Data Types:\n{df.dtypes.to_string()}")
-    logging.info(f"Head:\n{df.head().to_string()}")
     return df
 
 def filter_by_date_range(df, start_date, end_date):
@@ -124,14 +119,12 @@ def calculate_costs(df, cost_first_sku, cost_next_sku, cost_per_piece):
 
     if billable_df.empty:
         # If no billable items, return original df with zero-cost columns
-        df['Billable Unique SKUs'] = 0
-        df['Billable Total Quantity'] = 0
+        df['Billable_Unique_SKUs'] = 0
+        df['Billable_Total_Quantity'] = 0
         df['SKU Cost'] = 0
         df['Quantity Cost'] = 0
         df['Total Order Cost'] = 0
         return df
-
-    logging.info(f"Head of billable items:\n{billable_df.head().to_string()}")
 
     # Group by order to get SKU counts and quantities from billable items
     order_summary = billable_df.groupby('Name').agg(
@@ -148,8 +141,6 @@ def calculate_costs(df, cost_first_sku, cost_next_sku, cost_per_piece):
     order_summary['SKU Cost'] = order_summary['Billable_Unique_SKUs'].apply(calculate_sku_cost)
     order_summary['Quantity Cost'] = order_summary['Billable_Total_Quantity'] * cost_per_piece
     order_summary['Total Order Cost'] = order_summary['SKU Cost'] + order_summary['Quantity Cost']
-
-    logging.info(f"Order summary for cost calculation:\n{order_summary.to_string()}")
 
     # Merge the calculated costs back into the original DataFrame
     df_with_costs = pd.merge(df, order_summary, on='Name', how='left')
@@ -186,12 +177,6 @@ def create_invoice_summary(df_with_costs, cost_first_sku, cost_next_sku, cost_pe
 
     # Calculate total counts of first SKUs and next SKUs
     total_billable_skus = order_costs['Billable_Unique_SKUs'].sum()
-    logging.info("Creating invoice summary...")
-    logging.info(f"Total Orders: {total_orders}")
-    logging.info(f"Total Billable SKUs: {total_billable_skus}")
-    logging.info(f"Total SKU Cost: {total_sku_cost}")
-    logging.info(f"Total Quantity Cost: {total_quantity_cost}")
-    logging.info(f"Grand Total: {grand_total_cost}")
     total_first_skus = total_orders if total_billable_skus > 0 else 0
     total_next_skus = total_billable_skus - total_first_skus
 
@@ -260,70 +245,67 @@ def create_excel_report(sheets_data, output_filename):
     # Define border styles
     thin_side = Side(border_style="thin", color="000000")
     thick_side = Side(border_style="thick", color="000000")
-
     thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
-    thick_top_border = Border(top=thick_side)
-    thick_bottom_border = Border(bottom=thick_side)
-    left_thick_border = Border(left=thick_side)
-    right_thick_border = Border(right=thick_side)
 
     try:
         with pd.ExcelWriter(output_filename, engine='openpyxl') as writer:
+            # Create a new dict with sorted dataframes to avoid modifying the originals
+            sorted_sheets_data = {}
             for sheet_name, df in sheets_data.items():
-                if df.empty:
+                if sheet_name in ['All Orders', 'Without Package Protection', 'Cost Calculation']:
+                    # Sort by Name and reset index to ensure correct row mapping for formatting
+                    sorted_sheets_data[sheet_name] = df.sort_values(by='Name').reset_index(drop=True)
+                else:
+                    sorted_sheets_data[sheet_name] = df
+
+            # Write sorted data to Excel
+            for sheet_name, df_sorted in sorted_sheets_data.items():
+                if df_sorted.empty:
                     continue
-                df.to_excel(writer, index=False, sheet_name=sheet_name)
+                df_sorted.to_excel(writer, index=False, sheet_name=sheet_name)
 
+            # Apply formatting to each sheet
             for sheet_name, worksheet in writer.sheets.items():
-                df = sheets_data[sheet_name]
+                df_sorted = sorted_sheets_data[sheet_name]
 
-                # --- Basic Formatting (apply to all sheets) ---
+                # --- Basic Formatting ---
                 header_font = Font(bold=True)
                 for cell in worksheet["1:1"]:
                     cell.font = header_font
-                    cell.border = thin_border # Add border to header
+                    cell.border = thin_border
 
                 worksheet.freeze_panes = 'A2'
-                if df.shape[0] > 0: # Only add filter if there is data
+                if not df_sorted.empty:
                     worksheet.auto_filter.ref = worksheet.dimensions
 
-                # --- Column Width Formatting (apply to all sheets) ---
-                for i, col in enumerate(df.columns, 1):
+                # --- Column Width Formatting ---
+                for i, col in enumerate(df_sorted.columns, 1):
                     column_letter = get_column_letter(i)
                     if col == 'Fulfilled at':
                         worksheet.column_dimensions[column_letter].width = 20
                         for cell in worksheet[column_letter][1:]:
                             if cell.value: cell.number_format = 'DD.MM.YYYY HH:MM'
                     else:
-                        if not df[col].empty: max_length = max(df[col].astype(str).map(len).max(), len(col))
-                        else: max_length = len(col)
+                        max_length = max((df_sorted[col].astype(str).map(len).max(), len(col))) if not df_sorted[col].empty else len(col)
                         worksheet.column_dimensions[column_letter].width = max_length + 2
 
-                # --- Advanced Border Formatting (conditional) ---
+                # --- Advanced Border Formatting ---
                 if sheet_name in ['All Orders', 'Without Package Protection', 'Cost Calculation']:
-                    # Sort by Name to ensure contiguous groups for border logic
-                    df.sort_values(by='Name', inplace=True)
+                    if df_sorted.empty: continue
                     # Group by order number to identify row groups
-                    order_groups = df.groupby((df['Name'] != df['Name'].shift()).cumsum())
+                    order_groups = df_sorted.groupby((df_sorted['Name'] != df_sorted['Name'].shift()).cumsum())
 
                     for _, group in order_groups:
-                        min_row = group.index.min() + 2  # +2 for header and 0-indexing
+                        min_row = group.index.min() + 2
                         max_row = group.index.max() + 2
 
                         for row_idx in range(min_row, max_row + 1):
-                            for col_idx in range(1, len(df.columns) + 1):
+                            for col_idx in range(1, len(df_sorted.columns) + 1):
                                 cell = worksheet.cell(row=row_idx, column=col_idx)
-
-                                # Determine the border sides for the current cell
                                 top = thick_side if row_idx == min_row else thin_side
                                 bottom = thick_side if row_idx == max_row else thin_side
                                 left = thick_side if col_idx == 1 else thin_side
-                                right = thick_side if col_idx == len(df.columns) else thin_side
-
-                                # For rows in the middle of a multi-row group, the top border should be thin.
-                                if row_idx > min_row:
-                                    top = thin_side
-
+                                right = thick_side if col_idx == len(df_sorted.columns) else thin_side
                                 cell.border = Border(left=left, right=right, top=top, bottom=bottom)
 
                 elif sheet_name == 'Final Invoice':
@@ -341,15 +323,6 @@ def create_excel_report(sheets_data, output_filename):
 
 def main():
     """Main function to run the script."""
-    # Configure logging
-    logging.basicConfig(
-        filename='debug_log.txt',
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        filemode='w'  # Overwrite log file each run
-    )
-    logging.info("Script started.")
-
     print("Starting Shopify Order Processor...")
 
     # Get start and end dates from user
