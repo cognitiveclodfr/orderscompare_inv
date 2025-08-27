@@ -20,9 +20,8 @@ def parse_arguments():
     """Parses command-line arguments."""
     parser = argparse.ArgumentParser(
         description="A script to filter and process Shopify order exports.",
-        epilog="Example: python shopify_order_processor.py orders_export.csv --start-date 01.01.2025 --end-date 31.01.2025"
+        epilog="Example: python shopify_order_processor.py --start-date 01.01.2025 --end-date 31.01.2025"
     )
-    parser.add_argument("filepath", help="Path to the input Shopify CSV file.")
     parser.add_argument(
         "--start-date",
         required=True,
@@ -32,10 +31,6 @@ def parse_arguments():
         "--end-date",
         required=True,
         help="End date for the report period (format: DD.MM.YYYY)."
-    )
-    parser.add_argument(
-        "--output",
-        help="Optional: Path for the output Excel file. If not provided, a default name will be generated."
     )
     return parser.parse_args()
 
@@ -223,11 +218,12 @@ def main():
     end_date = validate_date_format(args.end_date)
 
     print("Starting Shopify Order Processor...")
-    print(f"Input file: {args.filepath}")
+    input_filename = "orders_export.csv"
+    print(f"Input file: {input_filename}")
     print(f"Processing orders from {start_date.strftime('%d.%m.%Y')} to {end_date.strftime('%d.%m.%Y')}")
 
     # 1. Load and validate the CSV file
-    source_df = load_and_validate_csv(args.filepath)
+    source_df = load_and_validate_csv(input_filename)
 
     # 2. Filter orders by date range
     filtered_df = filter_by_date_range(source_df, start_date, end_date)
@@ -237,12 +233,20 @@ def main():
 
     # 4. Create the Excel report
     if not aggregated_df.empty:
-        if args.output:
-            output_filename = args.output
+        # Prompt user for output filename
+        prompt_message = "Enter the desired name for the output Excel file (e.g., report.xlsx).\nPress Enter to use a default name: "
+        output_filename_from_user = input(prompt_message)
+
+        if output_filename_from_user:
+            output_filename = output_filename_from_user
+            # Ensure the filename has .xlsx extension
+            if not output_filename.endswith('.xlsx'):
+                output_filename += '.xlsx'
         else:
             # Generate a dynamic filename if not provided
             current_date = datetime.now().strftime("%Y-%m-%d")
             output_filename = f"processed_orders_{current_date}.xlsx"
+            print(f"No filename provided. Using default: {output_filename}")
 
         create_excel_report(aggregated_df, output_filename)
     else:
