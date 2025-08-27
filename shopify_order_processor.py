@@ -249,24 +249,22 @@ def create_excel_report(sheets_data, output_filename):
 
     try:
         with pd.ExcelWriter(output_filename, engine='openpyxl') as writer:
-            # Create a new dict with sorted dataframes to avoid modifying the originals
-            sorted_sheets_data = {}
+            # Write data to sheets, sorting the main data sheets first
             for sheet_name, df in sheets_data.items():
-                if sheet_name in ['All Orders', 'Without Package Protection', 'Cost Calculation']:
-                    # Sort by Name and reset index to ensure correct row mapping for formatting
-                    sorted_sheets_data[sheet_name] = df.sort_values(by='Name').reset_index(drop=True)
-                else:
-                    sorted_sheets_data[sheet_name] = df
-
-            # Write sorted data to Excel
-            for sheet_name, df_sorted in sorted_sheets_data.items():
-                if df_sorted.empty:
+                if df.empty:
                     continue
-                df_sorted.to_excel(writer, index=False, sheet_name=sheet_name)
+                # Sort the data sheets to ensure orders are grouped together
+                if sheet_name in ['All Orders', 'Without Package Protection', 'Cost Calculation']:
+                    df = df.sort_values(by='Name').reset_index(drop=True)
+                df.to_excel(writer, index=False, sheet_name=sheet_name)
 
             # Apply formatting to each sheet
             for sheet_name, worksheet in writer.sheets.items():
-                df_sorted = sorted_sheets_data[sheet_name]
+                # This part is complex because we need the original df for column info
+                # but the worksheet is based on the (potentially sorted) df.
+                # It's safer to just re-fetch the df from the dict.
+                df = sheets_data[sheet_name]
+                if df.empty: continue
 
                 # --- Basic Formatting ---
                 header_font = Font(bold=True)
@@ -275,38 +273,51 @@ def create_excel_report(sheets_data, output_filename):
                     cell.border = thin_border
 
                 worksheet.freeze_panes = 'A2'
-                if not df_sorted.empty:
-                    worksheet.auto_filter.ref = worksheet.dimensions
+                worksheet.auto_filter.ref = worksheet.dimensions
 
                 # --- Column Width Formatting ---
-                for i, col in enumerate(df_sorted.columns, 1):
+                # Use the columns from the actual df for this sheet
+                cols_to_format = df.columns
+                if sheet_name in ['All Orders', 'Without Package Protection', 'Cost Calculation']:
+                    cols_to_format = df.sort_values(by='Name').reset_index(drop=True).columns
+
+                for i, col_name in enumerate(cols_to_format, 1):
                     column_letter = get_column_letter(i)
-                    if col == 'Fulfilled at':
+                    if col_name == 'Fulfilled at':
                         worksheet.column_dimensions[column_letter].width = 20
                         for cell in worksheet[column_letter][1:]:
                             if cell.value: cell.number_format = 'DD.MM.YYYY HH:MM'
                     else:
-                        max_length = max((df_sorted[col].astype(str).map(len).max(), len(col))) if not df_sorted[col].empty else len(col)
+                        max_length = max((df[col_name].astype(str).map(len).max(), len(col_name))) if not df[col_name].empty else len(col_name)
                         worksheet.column_dimensions[column_letter].width = max_length + 2
 
                 # --- Advanced Border Formatting ---
                 if sheet_name in ['All Orders', 'Without Package Protection', 'Cost Calculation']:
-                    if df_sorted.empty: continue
-                    # Group by order number to identify row groups
-                    order_groups = df_sorted.groupby((df_sorted['Name'] != df_sorted['Name'].shift()).cumsum())
+                    # Iterate through physical rows and apply borders based on cell values
+                    for row_idx in range(2, worksheet.max_row + 1):
+                        # Get current and previous order name from the first column
+                        current_name = worksheet.cell(row=row_idx, column=1).value
+                        prev_name = worksheet.cell(row=row_idx - 1, column=1).value if row_idx > 2 else None
 
-                    for _, group in order_groups:
-                        min_row = group.index.min() + 2
-                        max_row = group.index.max() + 2
+                        # Determine if this is the start or end of a group
+                        is_top_of_group = (current_name != prev_name) or (row_idx == 2)
 
-                        for row_idx in range(min_row, max_row + 1):
-                            for col_idx in range(1, len(df_sorted.columns) + 1):
-                                cell = worksheet.cell(row=row_idx, column=col_idx)
-                                top = thick_side if row_idx == min_row else thin_side
-                                bottom = thick_side if row_idx == max_row else thin_side
-                                left = thick_side if col_idx == 1 else thin_side
-                                right = thick_side if col_idx == len(df_sorted.columns) else thin_side
-                                cell.border = Border(left=left, right=right, top=top, bottom=bottom)
+                        # Look ahead to see if the next row is different
+                        is_bottom_of_group = False
+                        if row_idx == worksheet.max_row:
+                            is_bottom_of_group = True
+                        else:
+                            next_name = worksheet.cell(row=row_idx + 1, column=1).value
+                            if current_name != next_name:
+                                is_bottom_of_group = True
+
+                        for col_idx in range(1, worksheet.max_column + 1):
+                            cell = worksheet.cell(row=row_idx, column=col_idx)
+                            top = thick_side if is_top_of_group else thin_side
+                            bottom = thick_side if is_bottom_of_group else thin_side
+                            left = thick_side if col_idx == 1 else thin_side
+                            right = thick_side if col_idx == worksheet.max_column else thin_side
+                            cell.border = Border(left=left, right=right, top=top, bottom=bottom)
 
                 elif sheet_name == 'Final Invoice':
                     # Apply a simple border to the entire table
