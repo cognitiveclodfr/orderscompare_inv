@@ -125,51 +125,54 @@ def filter_by_date_range(df, start_date, end_date):
     return filtered_df
 
 def calculate_costs(df, cost_first_sku, cost_next_sku, cost_per_piece):
-    """Calculates the processing cost for each order based on tariffs using an optimized method."""
+    """Calculates the processing cost for each order based on tariffs."""
     if df.empty:
         return df
 
-    # Create a boolean mask for billable items
-    is_billable = ~df['Lineitem name'].str.contains("Package protection", na=False)
+    # Exclude "Package protection" items for billing calculation
+    billable_df = df[~df['Lineitem name'].str.contains("Package protection", na=False)].copy()
 
-    # Use transform to get order-level counts aligned with the original df index
-    # This is more efficient than agg() + merge()
-    # We calculate only on the billable subset and then fill the non-billable rows
+    if billable_df.empty:
+        # If no billable items, return original df with zero-cost columns
+        df['Billable_Unique_SKUs'] = 0
+        df['Billable_Total_Quantity'] = 0
+        df['SKU Cost'] = 0.0
+        df['Quantity Cost'] = 0.0
+        df['Total Order Cost'] = 0.0
+        return df
 
-    # Create a temporary DataFrame for calculations on billable items
-    billable_df = df[is_billable].copy()
-    if not billable_df.empty:
-        # Calculate counts on the billable df
-        sku_counts = billable_df.groupby('Name')['Lineitem sku'].transform('nunique')
-        qty_counts = billable_df.groupby('Name')['Lineitem quantity'].transform('sum')
+    # Group by order to get SKU counts and quantities from billable items
+    order_summary = billable_df.groupby('Name').agg(
+        Billable_Unique_SKUs=('Lineitem sku', 'nunique'),
+        Billable_Total_Quantity=('Lineitem quantity', 'sum')
+    ).reset_index()
 
-        # Assign counts back to the billable subset in the original df
-        df.loc[is_billable, 'Billable_Unique_SKUs'] = sku_counts
-        df.loc[is_billable, 'Billable_Total_Quantity'] = qty_counts
+    # Calculate costs for each order
+    def calculate_sku_cost(sku_count):
+        if sku_count == 0:
+            return 0
+        return cost_first_sku + (max(0, sku_count - 1) * cost_next_sku)
 
-    # Forward-fill the calculated values to non-billable items within the same order
-    ffill_cols = ['Billable_Unique_SKUs', 'Billable_Total_Quantity']
-    df[ffill_cols] = df.groupby('Name')[ffill_cols].ffill()
+    order_summary['SKU Cost'] = order_summary['Billable_Unique_SKUs'].apply(calculate_sku_cost)
+    order_summary['Quantity Cost'] = order_summary['Billable_Total_Quantity'] * cost_per_piece
+    order_summary['Total Order Cost'] = order_summary['SKU Cost'] + order_summary['Quantity Cost']
 
-    # Fill any remaining NaNs (for orders with no billable items) with 0
-    df.fillna({'Billable_Unique_SKUs': 0, 'Billable_Total_Quantity': 0}, inplace=True)
+    # Merge the calculated costs back into the original DataFrame
+    df_with_costs = pd.merge(df, order_summary, on='Name', how='left')
 
-    # Convert count columns to integer type
-    df['Billable_Unique_SKUs'] = df['Billable_Unique_SKUs'].astype(int)
-    df['Billable_Total_Quantity'] = df['Billable_Total_Quantity'].astype(int)
+    # Fill NaN for cost columns with 0 (for orders that had no billable items)
+    cost_cols = ['Billable_Unique_SKUs', 'Billable_Total_Quantity', 'SKU Cost', 'Quantity Cost', 'Total Order Cost']
+    for col in cost_cols:
+        if col in df_with_costs.columns:
+            df_with_costs[col] = df_with_costs[col].fillna(0)
 
-    # Vectorized cost calculation
-    def calculate_sku_cost(sku_count_series):
-        # This function is applied to a Series, so it should handle arrays of counts
-        cost = cost_first_sku + (sku_count_series - 1).clip(lower=0) * cost_next_sku
-        cost[sku_count_series == 0] = 0 # No cost if no billable SKUs
-        return cost
+    # Ensure integer columns are of integer type
+    int_cols = ['Billable_Unique_SKUs', 'Billable_Total_Quantity']
+    for col in int_cols:
+        if col in df_with_costs.columns:
+            df_with_costs[col] = df_with_costs[col].astype(int)
 
-    df['SKU Cost'] = calculate_sku_cost(df['Billable_Unique_SKUs'])
-    df['Quantity Cost'] = df['Billable_Total_Quantity'] * cost_per_piece
-    df['Total Order Cost'] = df['SKU Cost'] + df['Quantity Cost']
-
-    return df
+    return df_with_costs
 
 def create_invoice_summary(df_with_costs, cost_first_sku, cost_next_sku, cost_per_piece):
     """Creates a DataFrame with a summary of all costs for the invoice."""
