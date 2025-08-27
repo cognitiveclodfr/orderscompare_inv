@@ -5,7 +5,6 @@ Shopify Order Processor
 This script processes Shopify order exports (CSV) to filter, aggregate,
 and format them into a clean Excel report.
 """
-import argparse
 import sys
 import os
 from datetime import datetime
@@ -15,32 +14,22 @@ import pandas as pd
 import openpyxl
 from tqdm import tqdm
 
-
-def parse_arguments():
-    """Parses command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="A script to filter and process Shopify order exports.",
-        epilog="Example: python shopify_order_processor.py --start-date 01.01.2025 --end-date 31.01.2025"
-    )
-    parser.add_argument(
-        "--start-date",
-        required=True,
-        help="Start date for the report period (format: DD.MM.YYYY)."
-    )
-    parser.add_argument(
-        "--end-date",
-        required=True,
-        help="End date for the report period (format: DD.MM.YYYY)."
-    )
-    return parser.parse_args()
-
 def validate_date_format(date_string):
-    """Validates that the date string is in DD.MM.YYYY format and returns a datetime object."""
+    """Validates that the date string is in DD.MM.YYYY format and returns a datetime object or None."""
     try:
         return datetime.strptime(date_string, "%d.%m.%Y")
     except ValueError:
-        print(f"Error: Date '{date_string}' is not in the required DD.MM.YYYY format.", file=sys.stderr)
-        sys.exit(1)
+        return None
+
+def get_date_from_user(prompt_message):
+    """Prompts the user for a date, validates it, and loops until a valid date is entered."""
+    while True:
+        date_str = input(prompt_message)
+        date_obj = validate_date_format(date_str)
+        if date_obj:
+            return date_obj
+        else:
+            print(f"Error: Invalid date format. Please use DD.MM.YYYY.", file=sys.stderr)
 
 def load_and_validate_csv(file_path):
     """Loads the CSV, checks for file existence, and validates required columns."""
@@ -211,15 +200,14 @@ def create_excel_report(df, output_filename):
 
 def main():
     """Main function to run the script."""
-    args = parse_arguments()
-
-    # Validate dates first
-    start_date = validate_date_format(args.start_date)
-    end_date = validate_date_format(args.end_date)
-
     print("Starting Shopify Order Processor...")
+
+    # Get start and end dates from user
+    start_date = get_date_from_user("Enter the start date (DD.MM.YYYY): ")
+    end_date = get_date_from_user("Enter the end date (DD.MM.YYYY): ")
+
     input_filename = "orders_export.csv"
-    print(f"Input file: {input_filename}")
+    print(f"\nInput file: {input_filename}")
     print(f"Processing orders from {start_date.strftime('%d.%m.%Y')} to {end_date.strftime('%d.%m.%Y')}")
 
     # 1. Load and validate the CSV file
