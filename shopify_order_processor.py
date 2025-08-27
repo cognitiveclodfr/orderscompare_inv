@@ -20,6 +20,19 @@ def validate_date_format(date_string):
     except ValueError:
         return None
 
+def get_tariff_from_user(prompt_message):
+    """Prompts the user for a tariff value and validates it in a loop."""
+    while True:
+        cost_str = input(prompt_message)
+        try:
+            cost = float(cost_str)
+            if cost >= 0:
+                return cost
+            else:
+                print("Error: Please enter a non-negative number.", file=sys.stderr)
+        except ValueError:
+            print("Error: Invalid input. Please enter a valid number (e.g., 10.50).", file=sys.stderr)
+
 def get_date_from_user(prompt_message):
     """Prompts the user for a date, validates it, and loops until a valid date is entered."""
     while True:
@@ -96,6 +109,130 @@ def filter_by_date_range(df, start_date, end_date):
 
     return filtered_df
 
+def calculate_costs(df, cost_first_sku, cost_next_sku, cost_per_piece):
+    """Calculates the processing cost for each order based on tariffs."""
+    if df.empty:
+        return df
+
+    # Exclude "Package protection" items for billing calculation
+    billable_df = df[~df['Lineitem name'].str.contains("Package protection", na=False)].copy()
+
+    if billable_df.empty:
+        # If no billable items, return original df with zero-cost columns
+        df['Billable Unique SKUs'] = 0
+        df['Billable Total Quantity'] = 0
+        df['SKU Cost'] = 0
+        df['Quantity Cost'] = 0
+        df['Total Order Cost'] = 0
+        return df
+
+    # Group by order to get SKU counts and quantities from billable items
+    order_summary = billable_df.groupby('Name').agg(
+        Billable_Unique_SKUs=('Lineitem sku', 'nunique'),
+        Billable_Total_Quantity=('Lineitem quantity', 'sum')
+    ).reset_index()
+
+    # Calculate costs for each order
+    def calculate_sku_cost(sku_count):
+        if sku_count == 0:
+            return 0
+        return cost_first_sku + (max(0, sku_count - 1) * cost_next_sku)
+
+    order_summary['SKU Cost'] = order_summary['Billable_Unique_SKUs'].apply(calculate_sku_cost)
+    order_summary['Quantity Cost'] = order_summary['Billable_Total_Quantity'] * cost_per_piece
+    order_summary['Total Order Cost'] = order_summary['SKU Cost'] + order_summary['Quantity Cost']
+
+    # Merge the calculated costs back into the original DataFrame
+    df_with_costs = pd.merge(df, order_summary, on='Name', how='left')
+
+    # Fill NaN for cost columns with 0 (for orders that had no billable items)
+    cost_cols = ['Billable_Unique_SKUs', 'Billable_Total_Quantity', 'SKU Cost', 'Quantity Cost', 'Total Order Cost']
+    for col in cost_cols:
+        if col in df_with_costs.columns:
+            df_with_costs[col].fillna(0, inplace=True)
+
+    # Ensure integer columns are of integer type
+    int_cols = ['Billable_Unique_SKUs', 'Billable_Total_Quantity']
+    for col in int_cols:
+        if col in df_with_costs.columns:
+            df_with_costs[col] = df_with_costs[col].astype(int)
+
+    return df_with_costs
+
+def create_invoice_summary(df_with_costs, cost_first_sku, cost_next_sku, cost_per_piece):
+    """Creates a DataFrame with a summary of all costs for the invoice."""
+    if df_with_costs.empty:
+        return pd.DataFrame()
+
+    # Get one row per order to sum up order-level costs without duplication
+    order_costs = df_with_costs.drop_duplicates(subset=['Name'])
+
+    total_orders = order_costs['Name'].nunique()
+    if total_orders == 0:
+        return pd.DataFrame()
+
+    total_sku_cost = order_costs['SKU Cost'].sum()
+    total_quantity_cost = order_costs['Quantity Cost'].sum()
+    grand_total_cost = order_costs['Total Order Cost'].sum()
+
+    # Calculate total counts of first SKUs and next SKUs
+    total_billable_skus = order_costs['Billable_Unique_SKUs'].sum()
+    total_first_skus = total_orders if total_billable_skus > 0 else 0
+    total_next_skus = total_billable_skus - total_first_skus
+
+    total_pieces = order_costs['Billable_Total_Quantity'].sum()
+
+    # Create the summary DataFrame
+    summary_data = {
+        'Description': [
+            'Total Orders Processed',
+            'First SKU Tariff',
+            'Subsequent SKU Tariff',
+            'Per-Piece Tariff',
+            '---',
+            'Total SKU Cost',
+            'Total Piece Cost',
+            '---',
+            'GRAND TOTAL'
+        ],
+        'Rate': [
+            '',
+            f'{cost_first_sku:.2f}',
+            f'{cost_next_sku:.2f}',
+            f'{cost_per_piece:.2f}',
+            '',
+            '',
+            '',
+            '',
+            ''
+        ],
+        'Count': [
+            total_orders,
+            total_first_skus,
+            total_next_skus,
+            total_pieces,
+            '',
+            '',
+            '',
+            '',
+            ''
+        ],
+        'Total Amount': [
+            '',
+            total_first_skus * cost_first_sku,
+            total_next_skus * cost_next_sku,
+            total_pieces * cost_per_piece,
+            '',
+            f'{total_sku_cost:.2f}',
+            f'{total_quantity_cost:.2f}',
+            '',
+            f'{grand_total_cost:.2f}'
+        ]
+    }
+
+    summary_df = pd.DataFrame(summary_data)
+    return summary_df
+
 from openpyxl.styles import Font, Alignment
 from openpyxl.utils import get_column_letter
 
@@ -155,6 +292,12 @@ def main():
     start_date = get_date_from_user("Enter the start date (DD.MM.YYYY): ")
     end_date = get_date_from_user("Enter the end date (DD.MM.YYYY): ")
 
+    # Get tariffs from user
+    print("\nPlease enter the cost tariffs:")
+    cost_first_sku = get_tariff_from_user("Enter the cost for the first SKU: ")
+    cost_next_sku = get_tariff_from_user("Enter the cost for each subsequent SKU: ")
+    cost_per_piece = get_tariff_from_user("Enter the cost per piece: ")
+
     input_filename = "orders_export.csv"
     print(f"\nInput file: {input_filename}")
     print(f"Processing orders from {start_date.strftime('%d.%m.%Y')} to {end_date.strftime('%d.%m.%Y')}")
@@ -180,9 +323,17 @@ def main():
         # Create a second DataFrame excluding "Package protection"
         df_no_protection = report_df[~report_df['Lineitem name'].str.contains("Package protection", na=False)].copy()
 
+        # Create the detailed cost calculation DataFrame (Sheet 3)
+        df_with_costs = calculate_costs(report_df, cost_first_sku, cost_next_sku, cost_per_piece)
+
+        # Create the final invoice summary DataFrame (Sheet 4)
+        df_invoice = create_invoice_summary(df_with_costs, cost_first_sku, cost_next_sku, cost_per_piece)
+
         sheets_data = {
             'All Orders': report_df,
-            'Without Package Protection': df_no_protection
+            'Without Package Protection': df_no_protection,
+            'Cost Calculation': df_with_costs,
+            'Final Invoice': df_invoice
         }
 
         # Prompt user for output filename
