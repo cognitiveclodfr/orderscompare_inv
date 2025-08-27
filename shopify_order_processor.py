@@ -260,11 +260,7 @@ def create_excel_report(sheets_data, output_filename):
 
             # Apply formatting to each sheet
             for sheet_name, worksheet in writer.sheets.items():
-                # This part is complex because we need the original df for column info
-                # but the worksheet is based on the (potentially sorted) df.
-                # It's safer to just re-fetch the df from the dict.
-                df = sheets_data[sheet_name]
-                if df.empty: continue
+                if worksheet.max_row <= 1: continue
 
                 # --- Basic Formatting ---
                 header_font = Font(bold=True)
@@ -276,51 +272,41 @@ def create_excel_report(sheets_data, output_filename):
                 worksheet.auto_filter.ref = worksheet.dimensions
 
                 # --- Column Width Formatting ---
-                # Use the columns from the actual df for this sheet
-                cols_to_format = df.columns
+                # Re-fetch the potentially sorted df to get correct column info
+                df_to_format = sheets_data[sheet_name]
                 if sheet_name in ['All Orders', 'Without Package Protection', 'Cost Calculation']:
-                    cols_to_format = df.sort_values(by='Name').reset_index(drop=True).columns
+                     df_to_format = df_to_format.sort_values(by='Name').reset_index(drop=True)
 
-                for i, col_name in enumerate(cols_to_format, 1):
+                for i, col_name in enumerate(df_to_format.columns, 1):
                     column_letter = get_column_letter(i)
                     if col_name == 'Fulfilled at':
                         worksheet.column_dimensions[column_letter].width = 20
                         for cell in worksheet[column_letter][1:]:
                             if cell.value: cell.number_format = 'DD.MM.YYYY HH:MM'
                     else:
-                        max_length = max((df[col_name].astype(str).map(len).max(), len(col_name))) if not df[col_name].empty else len(col_name)
+                        max_length = max((df_to_format[col_name].astype(str).map(len).max(), len(col_name))) if not df_to_format[col_name].empty else len(col_name)
                         worksheet.column_dimensions[column_letter].width = max_length + 2
 
                 # --- Advanced Border Formatting ---
                 if sheet_name in ['All Orders', 'Without Package Protection', 'Cost Calculation']:
-                    # Iterate through physical rows and apply borders based on cell values
+                    thin_bottom_border = Border(bottom=thin_side)
+                    thick_bottom_border = Border(bottom=thick_side)
+
                     for row_idx in range(2, worksheet.max_row + 1):
-                        # Get current and previous order name from the first column
-                        current_name = worksheet.cell(row=row_idx, column=1).value
-                        prev_name = worksheet.cell(row=row_idx - 1, column=1).value if row_idx > 2 else None
-
-                        # Determine if this is the start or end of a group
-                        is_top_of_group = (current_name != prev_name) or (row_idx == 2)
-
-                        # Look ahead to see if the next row is different
-                        is_bottom_of_group = False
+                        is_last_row_of_group = False
                         if row_idx == worksheet.max_row:
-                            is_bottom_of_group = True
+                            is_last_row_of_group = True
                         else:
+                            current_name = worksheet.cell(row=row_idx, column=1).value
                             next_name = worksheet.cell(row=row_idx + 1, column=1).value
                             if current_name != next_name:
-                                is_bottom_of_group = True
+                                is_last_row_of_group = True
 
+                        border_to_apply = thick_bottom_border if is_last_row_of_group else thin_bottom_border
                         for col_idx in range(1, worksheet.max_column + 1):
-                            cell = worksheet.cell(row=row_idx, column=col_idx)
-                            top = thick_side if is_top_of_group else thin_side
-                            bottom = thick_side if is_bottom_of_group else thin_side
-                            left = thick_side if col_idx == 1 else thin_side
-                            right = thick_side if col_idx == worksheet.max_column else thin_side
-                            cell.border = Border(left=left, right=right, top=top, bottom=bottom)
+                            worksheet.cell(row=row_idx, column=col_idx).border = border_to_apply
 
                 elif sheet_name == 'Final Invoice':
-                    # Apply a simple border to the entire table
                     for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row, max_col=worksheet.max_column):
                         for cell in row:
                             cell.border = thin_border
