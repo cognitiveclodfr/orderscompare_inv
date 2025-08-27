@@ -233,49 +233,87 @@ def create_invoice_summary(df_with_costs, cost_first_sku, cost_next_sku, cost_pe
     summary_df = pd.DataFrame(summary_data)
     return summary_df
 
-from openpyxl.styles import Font, Alignment
+from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 def create_excel_report(sheets_data, output_filename):
-    """Formats and saves one or more DataFrames to a multi-sheet Excel file."""
+    """Formats and saves one or more DataFrames to a multi-sheet Excel file with custom borders."""
     if not sheets_data:
         print("No data to save, skipping Excel report generation.")
         return
+
+    # Define border styles
+    thin_side = Side(border_style="thin", color="000000")
+    thick_side = Side(border_style="thick", color="000000")
+
+    thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+    thick_top_border = Border(top=thick_side)
+    thick_bottom_border = Border(bottom=thick_side)
+    left_thick_border = Border(left=thick_side)
+    right_thick_border = Border(right=thick_side)
 
     try:
         with pd.ExcelWriter(output_filename, engine='openpyxl') as writer:
             for sheet_name, df in sheets_data.items():
                 if df.empty:
-                    continue  # Don't create a sheet for an empty DataFrame
+                    continue
                 df.to_excel(writer, index=False, sheet_name=sheet_name)
 
-            # Apply formatting to each sheet
             for sheet_name, worksheet in writer.sheets.items():
-                df = sheets_data[sheet_name] # Get the corresponding DataFrame
-                # 1. Apply formatting: Bold headers, freeze top row, add filters
+                df = sheets_data[sheet_name]
+
+                # --- Basic Formatting (apply to all sheets) ---
                 header_font = Font(bold=True)
                 for cell in worksheet["1:1"]:
                     cell.font = header_font
+                    cell.border = thin_border # Add border to header
 
                 worksheet.freeze_panes = 'A2'
-                worksheet.auto_filter.ref = worksheet.dimensions
+                if df.shape[0] > 0: # Only add filter if there is data
+                    worksheet.auto_filter.ref = worksheet.dimensions
 
-                # 2. Auto-fit column widths and apply specific formats
+                # --- Column Width Formatting (apply to all sheets) ---
                 for i, col in enumerate(df.columns, 1):
                     column_letter = get_column_letter(i)
                     if col == 'Fulfilled at':
-                        # Apply date format and set width
                         worksheet.column_dimensions[column_letter].width = 20
                         for cell in worksheet[column_letter][1:]:
-                            if cell.value:
-                                cell.number_format = 'DD.MM.YYYY HH:MM'
+                            if cell.value: cell.number_format = 'DD.MM.YYYY HH:MM'
                     else:
-                        # Auto-fit other columns
-                        if not df[col].empty:
-                            max_length = max(df[col].astype(str).map(len).max(), len(col))
-                        else:
-                            max_length = len(col)
+                        if not df[col].empty: max_length = max(df[col].astype(str).map(len).max(), len(col))
+                        else: max_length = len(col)
                         worksheet.column_dimensions[column_letter].width = max_length + 2
+
+                # --- Advanced Border Formatting (conditional) ---
+                if sheet_name in ['All Orders', 'Without Package Protection', 'Cost Calculation']:
+                    # Group by order number to identify row groups
+                    order_groups = df.groupby((df['Name'] != df['Name'].shift()).cumsum())
+
+                    for _, group in order_groups:
+                        min_row = group.index.min() + 2  # +2 for header and 0-indexing
+                        max_row = group.index.max() + 2
+
+                        for row_idx in range(min_row, max_row + 1):
+                            for col_idx in range(1, len(df.columns) + 1):
+                                cell = worksheet.cell(row=row_idx, column=col_idx)
+
+                                # Determine the border sides for the current cell
+                                top = thick_side if row_idx == min_row else thin_side
+                                bottom = thick_side if row_idx == max_row else thin_side
+                                left = thick_side if col_idx == 1 else thin_side
+                                right = thick_side if col_idx == len(df.columns) else thin_side
+
+                                # For rows in the middle of a multi-row group, the top border should be thin.
+                                if row_idx > min_row:
+                                    top = thin_side
+
+                                cell.border = Border(left=left, right=right, top=top, bottom=bottom)
+
+                elif sheet_name == 'Final Invoice':
+                    # Apply a simple border to the entire table
+                    for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row, max_col=worksheet.max_column):
+                        for cell in row:
+                            cell.border = thin_border
 
         print(f"Successfully created Excel report: {output_filename}")
 
