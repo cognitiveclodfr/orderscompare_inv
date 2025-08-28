@@ -189,7 +189,7 @@ def calculate_costs(df, cost_first_sku, cost_next_sku, cost_per_piece):
         pd.DataFrame: The DataFrame with added columns for line-item costs.
     """
     if df.empty:
-        return df
+        return df.copy()
 
     # Initialize new cost columns
     df['Piece Cost'] = 0.0
@@ -199,8 +199,11 @@ def calculate_costs(df, cost_first_sku, cost_next_sku, cost_per_piece):
     # Pattern to exclude non-billable items like insurance/protection
     protection_pattern = "Package protection|Shipping Protection"
 
+    # Use a copy to avoid SettingWithCopyWarning when modifying groups
+    df_copy = df.copy()
+
     # Iterate over each order group
-    for name, group in df.groupby('Name'):
+    for name, group in df_copy.groupby('Name'):
         seen_skus = set()
         is_first_billable_item = True
 
@@ -408,6 +411,11 @@ def prepare_report_sheets(report_df, cost_first_sku, cost_next_sku, cost_per_pie
     for col in cost_report_cols:
         if col not in df_with_costs.columns:
             df_with_costs[col] = 0 # or some other default
+
+    # Fill NaN values in the relevant columns before processing
+    final_cost_cols = ['Piece Cost', 'SKU Cost', 'Line Total Cost']
+    df_with_costs[final_cost_cols] = df_with_costs[final_cost_cols].fillna(0)
+
     df_costs_for_report = df_with_costs[cost_report_cols]
 
     # IMPORTANT: Sort by order name BEFORE adding TOTAL rows to prevent misplacement.
