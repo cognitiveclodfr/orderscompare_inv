@@ -1,0 +1,25 @@
+Name,Email,Financial Status,Paid at,Fulfillment Status,Fulfilled at,Accepts Marketing,Currency,Subtotal,Shipping,Taxes,Total,Discount Code,Discount Amount,Shipping Method,Created at,Lineitem quantity,Lineitem name,Lineitem price,Lineitem compare at price,Lineitem sku,Lineitem requires shipping,Lineitem taxable,Lineitem fulfillment status
+#129711,Mutuwale_12@icloud.com,paid,2025-05-31 13:13:19 +0300,fulfilled,2025-06-02 15:04:09 +0300,yes,EUR,358.00,0.00,62.14,358.00,"",0.00,International Shipping (7-14 Working Days),2025-05-31 13:13:18 +0300,1,Athletic Dept Tee - Vintage Grey - Medium,50.00,0.00,01-TE-0350-105-M,true,true,fulfilled
+#129711,Mutuwale_12@icloud.com,,,,,,,,,,,,,,2025-05-31 13:13:18 +0300,1,Baggy Jersey Shorts - Black - Medium,50.00,"",01-ST-0351-001- M,true,true,fulfilled
+#129711,Mutuwale_12@icloud.com,,,,,,,,,,,,,,2025-05-31 13:13:18 +0300,1,Mesh Jersey - Black - Medium,60.00,0.00,01-JR-0057-001-M,true,true,fulfilled
+#129711,Mutuwale_12@icloud.com,,,,,,,,,,,,,,2025-05-31 13:13:18 +0300,1,Star Logo Jersey - Medium,60.00,"",01-JR-0354-076-M,true,true,fulfilled
+#129711,Mutuwale_12@icloud.com,,,,,,,,,,,,,,2025-05-31 13:13:18 +0300,1,Rhinestone Denim Jorts - Cream Wash - Medium,69.00,"",01-JO-0362-065-M,true,true,fulfilled
+#129711,Mutuwale_12@icloud.com,,,,,,,,,,,,,,2025-05-31 13:13:18 +0300,1,Rhinestone Denim Jorts - Black - Medium,69.00,"",01-JO-0362-001-M,true,true,fulfilled
+#129715,order.atyws@gmail.com,paid,2025-05-31 17:31:54 +0300,fulfilled,2025-06-02 15:04:02 +0300,yes,EUR,107.10,9.00,19.35,116.10,WELCOME10,11.90,International Shipping (4-6 Working Days),2025-05-31 17:31:53 +0300,1,Pearl Denim - Black - M (32),119.00,0.00,01-DM-0334-001-M,true,true,fulfilled
+#129809,dd.bsns.mail@gmail.com,paid,2025-06-04 02:54:04 +0300,fulfilled,2025-06-04 12:10:57 +0300,yes,EUR,228.00,10.00,47.60,238.00,"",0.00,DHL Express Shipping (1-3 Days),2025-06-04 02:54:03 +0300,1,Flare Painters Denim - Light Stone - L (34),109.00,0.00,01-DM-0226-002-L,true,true,fulfilled
+#129809,dd.bsns.mail@gmail.com,,,,,,,,,,,,,,2025-06-04 02:54:03 +0300,1,Crystal Flare Denim - Black - L (34),119.00,0.00,01-DM-0358-001-L,true,true,fulfilled
+#129808,raymondelijah14@gmail.com,paid,2025-06-04 02:37:58 +0300,fulfilled,2025-06-04 12:16:23 +0300,yes,EUR,126.96,0.00,0.00,126.96,WELCOME8,11.04,DHL Express Shipping (1-3 Days),2025-06-04 02:37:58 +0300,1,Rhinestone Denim Jorts - Black - Large,69.00,,01-JO-0362-001-L,true,true,fulfilled
+#129808,raymondelijah14@gmail.com,,,,,,,,,,,,,,2025-06-04 02:37:58 +0300,1,Rhinestone Denim Jorts - Cream Wash - Large,69.00,"",01-JO-0362-065-L,true,true,fulfilled
+#129807,cody.kovarik@icloud.com,paid,2025-06-04 02:28:29 +0300,fulfilled,2025-06-04 12:21:04 +0300,yes,EUR,65.00,9.00,0.00,74.00,"",0.00,DHL Express Shipping (1-3 Days),2025-06-04 02:28:29 +0300,1,Denim Jorts - Black - Small,65.00,,01-JO-0086-001-S,true,true,fulfilled
+#129806,cecnchlifestyle@gmail.com,paid,2025-06-04 01:43:45 +0300,fulfilled,2025-06-13 15:38:11 +0300,yes,EUR,1008.90,60.00,0.00,1068.90,WELCOME10,112.10,DHL Express Shipping (1-3 Days) duties not paid*,2025-06-04 01:43:44 +0300,1,Sakura Flare Denim - Light Stone - L (34),119.00,0.00,01-DM-0288-002-L,true,true,fulfilled
+#129806,cecnchlifestyle@gmail.com,,,,,,,,,,,,,,2025-06-04 01:43:44 +0300,1,Flare Tapestry Pants - Floral - L (34),99.00,0.00,01-PT-0246-082-L,true,true,fulfilled
+#129806,cecnchlifestyle@gmail.com,,,,,,,,,,,,,,2025-06-04 01:43:44 +0300,1,Flare Tapestry Pants - Botanic - L (34),99.00,0.00,01-PT-0246-096-L,true,true,fulfilled
+#129806,cecnchlifestyle@gmail.com,,,,,,,,,,,,,,2025-06-04 01:43:44 +0300,1,Wave Flare Denim - Black - L (34),119.00,0.00,01-DM-0274-001-L,true,true,fulfilled
+#129806,cecnchlifestyle@gmail.com,,,,,,,,,,,,,,2025-06-04 01:43:44 +0300,1,Crystal Flare Denim - Black - S (30),119.00,0.00,01-DM-0358-001-S,true,true,fulfilled
+#129806,cecnchlifestyle@gmail.com,,,,,,,,,,,,,,2025-06-04 01:43:44 +0300,1,Moto Flare Denim - L (34),119.00,0.00,01-DM-0338-065-L,true,true,fulfilled
+#129806,cecnchlifestyle@gmail.com,,,,,,,,,,,,,,2025-06-04 01:43:44 +0300,1,Rhinestone Flare Denim - Light Stone - M (32),119.00,0.00,01-DM-0289-002-M,true,true,fulfilled
+#129806,cecnchlifestyle@gmail.com,,,,,,,,,,,,,,2025-06-04 01:43:44 +0300,1,Pearl Denim - Black - L (34),119.00,0.00,01-DM-0334-001-L,true,true,fulfilled
+#129806,cecnchlifestyle@gmail.com,,,,,,,,,,,,,,2025-06-04 01:43:44 +0300,1,Pearl Denim - Light Stone - M (32),119.00,0.00,01-DM-0334-002-M,true,true,fulfilled
+#129806,cecnchlifestyle@gmail.com,,,,,,,,,,,,,,2025-06-04 01:43:44 +0300,1,Tapestry Jacket - Botanic - Medium,90.00,90.00,01-JK-0343-085-M,true,true,fulfilled
+#129805,weise-timo@web.de,paid,2025-06-04 01:06:40 +0300,fulfilled,2025-06-04 11:57:04 +0300,yes,EUR,228.00,0.00,36.40,228.00,"",0.00,FREE International Shipping (2-4 Working Days),2025-06-04 01:06:39 +0300,1,Workwear Denim Pant - L (34),109.00,,01-DM-0342-104-L,true,true,fulfilled
+#129805,weise-timo@web.de,,,,,,,,,,,,,,2025-06-04 01:06:39 +0300,1,Crystal Flare Denim - Black - L (34),119.00,0.00,01-DM-0358-001-L,true,true,fulfilled

@@ -79,21 +79,8 @@ def get_date_from_user(prompt_message):
 
 def load_and_validate_csv(file_path):
     """
-    Loads a CSV file, validates its existence and required columns.
-
-    It specifies data types for certain columns to ensure efficient loading
-    and prevent type errors. If the file is not found or is missing
-    essential columns, the script will exit.
-
-    Args:
-        file_path (str): The path to the input CSV file.
-
-    Returns:
-        pd.DataFrame: The loaded and validated DataFrame.
-
-    Exits:
-        The script will exit with status 1 if the file is not found, cannot be
-        read, or is missing required columns.
+    Loads a CSV file, validates its existence and required columns, and
+    cleans the 'Name' column to ensure consistent grouping.
     """
     if not os.path.exists(file_path):
         logging.error(f"The file '{file_path}' was not found.")
@@ -122,6 +109,12 @@ def load_and_validate_csv(file_path):
     if missing_columns:
         logging.error(f"The input CSV is missing the following required columns: {', '.join(missing_columns)}")
         sys.exit(1)
+
+    # --- Data Cleaning Step ---
+    # Strip whitespace from 'Name' column to prevent grouping errors
+    if 'Name' in df.columns:
+        df['Name'] = df['Name'].astype(str).str.strip()
+
 
     logging.info("Successfully loaded and validated the input file.")
     return df
@@ -282,35 +275,48 @@ def create_invoice_summary(df_with_costs, cost_first_sku, cost_next_sku, cost_pe
 def transform_cost_df_for_reporting(df_costs):
     """
     Transforms the cost calculation DataFrame to include a summary 'TOTAL' row for each order.
-    It now sums the line-item costs to create the total.
+    This function uses a robust, vectorized approach to avoid ordering issues.
     """
     if df_costs.empty:
         return df_costs
 
-    processed_orders = []
-    # No need to sort here, as the final sorting happens in create_excel_report
-    for name, group in df_costs.groupby('Name', sort=False):
-        # Calculate total for the group using the new 'Line Total Cost'
-        total_order_cost = group['Line Total Cost'].sum()
+    # 1. Calculate all totals first using a vectorized groupby.
+    totals_df = df_costs.groupby('Name', as_index=False).agg(
+        **{
+            'Piece Cost': pd.NamedAgg(column='Piece Cost', aggfunc='sum'),
+            'SKU Cost': pd.NamedAgg(column='SKU Cost', aggfunc='sum'),
+            'Line Total Cost': pd.NamedAgg(column='Line Total Cost', aggfunc='sum'),
+        }
+    )
+    totals_df['Lineitem name'] = 'TOTAL'
 
-        # Create the 'TOTAL' row
-        total_row = pd.DataFrame([{
-            'Name': name,
-            'Lineitem name': 'TOTAL',
-            'Piece Cost': group['Piece Cost'].sum(),
-            'SKU Cost': group['SKU Cost'].sum(),
-            'Line Total Cost': total_order_cost
-        }])
+    # 2. Combine the original data with the new totals.
+    # `sort=False` is not strictly needed here but is good practice.
+    combined_df = pd.concat([df_costs, totals_df], ignore_index=True, sort=False)
 
-        # Combine the original group with the new total row
-        processed_group = pd.concat([group, total_row], ignore_index=True)
-        processed_orders.append(processed_group)
+    # 3. Create a temporary sort key to guarantee TOTAL rows appear last.
+    # The 'is_total' column will be 0 for items and 1 for TOTALs.
+    combined_df['is_total'] = (combined_df['Lineitem name'] == 'TOTAL').astype(int)
 
-    if not processed_orders:
-        return pd.DataFrame()
+    # 4. Sort by the order name first, then by the 'is_total' flag.
+    # This robustly places the TOTAL row at the bottom of each group.
+    # We also fill NaNs in 'Fulfilled at' to prevent sorting errors if a TOTAL
+    # row (with NaT) is compared with a valid date.
+    if 'Fulfilled at' in combined_df.columns:
+        # Use a far-future date for TOTAL rows to ensure they sort last if needed,
+        # though sorting by 'is_total' should be sufficient.
+        combined_df['Fulfilled at'].fillna(pd.Timestamp.max, inplace=True)
 
-    # Combine all processed groups back into a single DataFrame
-    final_df = pd.concat(processed_orders, ignore_index=True)
+    final_df = combined_df.sort_values(by=['Name', 'is_total']).reset_index(drop=True)
+
+    # 5. Clean up the temporary sort column.
+    final_df = final_df.drop(columns=['is_total'])
+
+    # Restore NaNs for presentation
+    if 'Fulfilled at' in final_df.columns:
+        final_df['Fulfilled at'] = final_df['Fulfilled at'].replace({pd.Timestamp.max: pd.NaT})
+
+
     return final_df
 
 def create_excel_report(sheets_data, output_filename):
@@ -329,7 +335,9 @@ def create_excel_report(sheets_data, output_filename):
         with pd.ExcelWriter(output_filename, engine='openpyxl') as writer:
             for sheet_name, df in sheets_data.items():
                 if df.empty: continue
-                if sheet_name in ['All Orders', 'Without Package Protection', 'Cost Calculation']:
+                # IMPORTANT: Do NOT re-sort 'Cost Calculation' here.
+                # It is pre-sorted to ensure TOTAL rows are last.
+                if sheet_name in ['All Orders', 'Without Package Protection']:
                     df = df.sort_values(by='Name').reset_index(drop=True)
                 df.to_excel(writer, index=False, sheet_name=sheet_name)
 
@@ -344,8 +352,9 @@ def create_excel_report(sheets_data, output_filename):
                 worksheet.auto_filter.ref = worksheet.dimensions
 
                 df_to_format = sheets_data[sheet_name]
-                if sheet_name in ['All Orders', 'Without Package Protection', 'Cost Calculation']:
-                     df_to_format = df_to_format.sort_values(by='Name').reset_index(drop=True)
+                # Re-sorting is not needed here either as the data is already in its final order.
+                # if sheet_name in ['All Orders', 'Without Package Protection', 'Cost Calculation']:
+                #      df_to_format = df_to_format.sort_values(by='Name').reset_index(drop=True)
 
                 for i, col_name in enumerate(df_to_format.columns, 1):
                     column_letter = get_column_letter(i)
@@ -418,11 +427,8 @@ def prepare_report_sheets(report_df, cost_first_sku, cost_next_sku, cost_per_pie
 
     df_costs_for_report = df_with_costs[cost_report_cols]
 
-    # IMPORTANT: Sort by order name BEFORE adding TOTAL rows to prevent misplacement.
-    df_costs_for_report_sorted = df_costs_for_report.sort_values(by='Name').reset_index(drop=True)
-
-    # Transform the sorted data to add TOTAL rows
-    df_costs_transformed = transform_cost_df_for_reporting(df_costs_for_report_sorted)
+    # The transform function now handles its own sorting robustly.
+    df_costs_transformed = transform_cost_df_for_reporting(df_costs_for_report)
 
     # The invoice summary is calculated on the original, untransformed cost data
     df_invoice = create_invoice_summary(df_with_costs, cost_first_sku, cost_next_sku, cost_per_piece)
