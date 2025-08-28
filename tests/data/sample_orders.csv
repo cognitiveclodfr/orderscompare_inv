@@ -1,0 +1,6 @@
+Name,Fulfilled at,Lineitem quantity,Lineitem name,Lineitem sku,Total
+#1001,2025-08-01T10:00:00Z,1,"T-Shirt",SKU-TS,20.00
+#1001,2025-08-01T10:00:00Z,2,"Mug",SKU-MUG,15.00
+#1002,2025-08-02T11:00:00Z,1,"Hoodie",SKU-HOOD,50.00
+#1002,2025-08-02T11:00:00Z,1,"Package protection",INS-01,1.00
+#1003,2025-08-03T12:00:00Z,3,"Single-Item",SKU-SINGLE,30.00
