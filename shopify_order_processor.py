@@ -174,61 +174,87 @@ def filter_by_date_range(df, start_date, end_date):
 
 def calculate_costs(df, cost_first_sku, cost_next_sku, cost_per_piece):
     """
-    Calculates processing costs for each order and adds them to the DataFrame.
+    Calculates processing costs for each line item in each order.
+
+    This function iterates through each order, calculates costs on a line-by-line
+    basis, and adds new columns for detailed cost breakdown.
+
+    Args:
+        df (pd.DataFrame): The DataFrame of orders.
+        cost_first_sku (float): The cost for the first unique SKU in an order.
+        cost_next_sku (float): The cost for each subsequent unique SKU.
+        cost_per_piece (float): The cost for each individual item.
+
+    Returns:
+        pd.DataFrame: The DataFrame with added columns for line-item costs.
     """
     if df.empty:
         return df
 
-    billable_df = df[~df['Lineitem name'].str.contains("Package protection", na=False)].copy()
-    if billable_df.empty:
-        df['Billable_Unique_SKUs'] = 0
-        df['Billable_Total_Quantity'] = 0
-        df['SKU Cost'] = 0.0
-        df['Quantity Cost'] = 0.0
-        df['Total Order Cost'] = 0.0
-        return df
+    # Initialize new cost columns
+    df['Piece Cost'] = 0.0
+    df['SKU Cost'] = 0.0
+    df['Line Total Cost'] = 0.0
 
-    order_summary = billable_df.groupby('Name').agg(
-        Billable_Unique_SKUs=('Lineitem sku', 'nunique'),
-        Billable_Total_Quantity=('Lineitem quantity', 'sum')
-    ).reset_index()
+    # Pattern to exclude non-billable items like insurance/protection
+    protection_pattern = "Package protection|Shipping Protection"
 
-    def calculate_sku_cost(sku_count):
-        if sku_count == 0:
-            return 0
-        return cost_first_sku + (max(0, sku_count - 1) * cost_next_sku)
+    # Iterate over each order group
+    for name, group in df.groupby('Name'):
+        seen_skus = set()
+        is_first_billable_item = True
 
-    order_summary['SKU Cost'] = order_summary['Billable_Unique_SKUs'].apply(calculate_sku_cost)
-    order_summary['Quantity Cost'] = order_summary['Billable_Total_Quantity'] * cost_per_piece
-    order_summary['Total Order Cost'] = order_summary['SKU Cost'] + order_summary['Quantity Cost']
+        # Filter out non-billable items for cost calculation
+        billable_items = group[~group['Lineitem name'].str.contains(protection_pattern, na=False)]
 
-    df_with_costs = pd.merge(df, order_summary, on='Name', how='left')
-    cost_cols = ['Billable_Unique_SKUs', 'Billable_Total_Quantity', 'SKU Cost', 'Quantity Cost', 'Total Order Cost']
-    df_with_costs[cost_cols] = df_with_costs[cost_cols].fillna(0)
-    int_cols = ['Billable_Unique_SKUs', 'Billable_Total_Quantity']
-    df_with_costs[int_cols] = df_with_costs[int_cols].astype(int)
+        for index, row in billable_items.iterrows():
+            # 1. Calculate Piece Cost
+            piece_cost = row['Lineitem quantity'] * cost_per_piece
+            df.loc[index, 'Piece Cost'] = piece_cost
 
-    return df_with_costs
+            # 2. Calculate SKU Cost
+            sku_cost = 0.0
+            if is_first_billable_item:
+                sku_cost = cost_first_sku
+                is_first_billable_item = False
+            elif row['Lineitem sku'] not in seen_skus:
+                sku_cost = cost_next_sku
+
+            df.loc[index, 'SKU Cost'] = sku_cost
+            seen_skus.add(row['Lineitem sku'])
+
+            # 3. Calculate Total Line Cost
+            df.loc[index, 'Line Total Cost'] = piece_cost + sku_cost
+
+    return df
 
 def create_invoice_summary(df_with_costs, cost_first_sku, cost_next_sku, cost_per_piece):
     """
-    Creates a summary DataFrame formatted as a final invoice.
+    Creates a summary DataFrame formatted as a final invoice, based on line-item costs.
     """
     if df_with_costs.empty:
         return pd.DataFrame()
 
-    order_costs = df_with_costs.drop_duplicates(subset=['Name'])
-    total_orders = order_costs['Name'].nunique()
+    protection_pattern = "Package protection|Shipping Protection"
+    billable_df = df_with_costs[~df_with_costs['Lineitem name'].str.contains(protection_pattern, na=False)].copy()
+
+    if billable_df.empty:
+        return pd.DataFrame()
+
+    total_orders = billable_df['Name'].nunique()
     if total_orders == 0:
         return pd.DataFrame()
 
-    total_sku_cost = order_costs['SKU Cost'].sum()
-    total_quantity_cost = order_costs['Quantity Cost'].sum()
-    grand_total_cost = order_costs['Total Order Cost'].sum()
-    total_billable_skus = order_costs['Billable_Unique_SKUs'].sum()
-    total_first_skus = total_orders if total_billable_skus > 0 else 0
-    total_next_skus = total_billable_skus - total_first_skus
-    total_pieces = order_costs['Billable_Total_Quantity'].sum()
+    total_pieces = billable_df['Lineitem quantity'].sum()
+
+    # Calculate SKU counts based on the 'SKU Cost' column values
+    total_first_skus = (billable_df['SKU Cost'] == cost_first_sku).sum()
+    total_next_skus = (billable_df['SKU Cost'] == cost_next_sku).sum()
+
+    # Calculate total costs from the new columns
+    total_sku_cost_calculated = billable_df['SKU Cost'].sum()
+    total_piece_cost_calculated = billable_df['Piece Cost'].sum()
+    grand_total_cost = billable_df['Line Total Cost'].sum()
 
     summary_data = {
         'Description': [
@@ -245,7 +271,7 @@ def create_invoice_summary(df_with_costs, cost_first_sku, cost_next_sku, cost_pe
         ],
         'Total Amount': [
             '', total_first_skus * cost_first_sku, total_next_skus * cost_next_sku, total_pieces * cost_per_piece,
-            '', f'{total_sku_cost:.2f}', f'{total_quantity_cost:.2f}', '', f'{grand_total_cost:.2f}'
+            '', f'{total_sku_cost_calculated:.2f}', f'{total_piece_cost_calculated:.2f}', '', f'{grand_total_cost:.2f}'
         ]
     }
     return pd.DataFrame(summary_data)
@@ -253,42 +279,32 @@ def create_invoice_summary(df_with_costs, cost_first_sku, cost_next_sku, cost_pe
 def transform_cost_df_for_reporting(df_costs):
     """
     Transforms the cost calculation DataFrame to include a summary 'TOTAL' row for each order.
-
-    Args:
-        df_costs (pd.DataFrame): The DataFrame from the `calculate_costs` function.
-
-    Returns:
-        pd.DataFrame: A new DataFrame with a 'TOTAL' row for each order, ready for reporting.
+    It now sums the line-item costs to create the total.
     """
     if df_costs.empty:
         return df_costs
 
     processed_orders = []
-    for name, group in df_costs.groupby('Name'):
-        # Calculate totals for the group
-        total_quantity = group['Lineitem quantity'].sum()
-        total_sku_cost = group['SKU Cost'].sum()
-        total_quantity_cost = group['Quantity Cost'].sum()
-        # Total order cost is the same for all rows in the group
-        total_order_cost = group['Total Order Cost'].iloc[0]
+    # No need to sort here, as the final sorting happens in create_excel_report
+    for name, group in df_costs.groupby('Name', sort=False):
+        # Calculate total for the group using the new 'Line Total Cost'
+        total_order_cost = group['Line Total Cost'].sum()
 
         # Create the 'TOTAL' row
         total_row = pd.DataFrame([{
             'Name': name,
             'Lineitem name': 'TOTAL',
-            'Lineitem quantity': total_quantity,
-            'SKU Cost': total_sku_cost,
-            'Quantity Cost': total_quantity_cost,
-            'Total Order Cost': total_order_cost
+            'Piece Cost': group['Piece Cost'].sum(),
+            'SKU Cost': group['SKU Cost'].sum(),
+            'Line Total Cost': total_order_cost
         }])
 
-        # Clear the 'Total Order Cost' from the individual item rows
-        group_copy = group.copy()
-        group_copy['Total Order Cost'] = pd.NA
-
         # Combine the original group with the new total row
-        processed_group = pd.concat([group_copy, total_row], ignore_index=True)
+        processed_group = pd.concat([group, total_row], ignore_index=True)
         processed_orders.append(processed_group)
+
+    if not processed_orders:
+        return pd.DataFrame()
 
     # Combine all processed groups back into a single DataFrame
     final_df = pd.concat(processed_orders, ignore_index=True)
@@ -338,7 +354,22 @@ def create_excel_report(sheets_data, output_filename):
                         max_len = max((df_to_format[col_name].astype(str).map(len).max(), len(col_name)))
                         worksheet.column_dimensions[column_letter].width = max_len + 2
 
-                if sheet_name in ['All Orders', 'Without Package Protection', 'Cost Calculation']:
+                if sheet_name == 'Cost Calculation':
+                    # In this sheet, we apply a thick border only under 'TOTAL' rows
+                    thick_bottom_border = Border(bottom=thick_side)
+                    # Find the column index for 'Lineitem name' to reliably find TOTAL rows
+                    try:
+                        lineitem_name_col_idx = df_to_format.columns.get_loc('Lineitem name') + 1
+                        for row_idx in range(2, worksheet.max_row + 1):
+                            cell_value = worksheet.cell(row=row_idx, column=lineitem_name_col_idx).value
+                            if cell_value == 'TOTAL':
+                                for col_idx in range(1, worksheet.max_column + 1):
+                                    worksheet.cell(row=row_idx, column=col_idx).border = thick_bottom_border
+                    except KeyError:
+                        logging.warning("Could not find 'Lineitem name' column to apply special formatting.")
+
+                elif sheet_name in ['All Orders', 'Without Package Protection']:
+                    # Original logic for sheets where we group by order name
                     thin_bottom_border = Border(bottom=thin_side)
                     thick_bottom_border = Border(bottom=thick_side)
                     for row_idx in range(2, worksheet.max_row + 1):
@@ -347,6 +378,7 @@ def create_excel_report(sheets_data, output_filename):
                         border_to_apply = thick_bottom_border if is_last else thin_bottom_border
                         for col_idx in range(1, worksheet.max_column + 1):
                             worksheet.cell(row=row_idx, column=col_idx).border = border_to_apply
+
                 elif sheet_name == 'Final Invoice':
                     for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row):
                         for cell in row:
@@ -361,13 +393,32 @@ def prepare_report_sheets(report_df, cost_first_sku, cost_next_sku, cost_per_pie
     """
     Prepares a dictionary of DataFrames for the multi-sheet Excel report.
     """
-    df_no_protection = report_df[~report_df['Lineitem name'].str.contains("Package protection", na=False)].copy()
-    df_with_costs = calculate_costs(report_df, cost_first_sku, cost_next_sku, cost_per_piece)
+    protection_pattern = "Package protection|Shipping Protection"
+    df_no_protection = report_df[~report_df['Lineitem name'].str.contains(protection_pattern, na=False)].copy()
 
-    # Transform the cost calculation sheet to have the new summary format
-    df_costs_transformed = transform_cost_df_for_reporting(df_with_costs)
+    # Pass a copy to calculate_costs to avoid SettingWithCopyWarning
+    df_with_costs = calculate_costs(report_df.copy(), cost_first_sku, cost_next_sku, cost_per_piece)
 
+    # Define and select the final columns for the 'Cost Calculation' report
+    cost_report_cols = [
+        'Name', 'Fulfilled at', 'Lineitem quantity', 'Lineitem name', 'Lineitem sku',
+        'Piece Cost', 'SKU Cost', 'Line Total Cost'
+    ]
+    # Ensure all required columns exist in the dataframe before selection
+    for col in cost_report_cols:
+        if col not in df_with_costs.columns:
+            df_with_costs[col] = 0 # or some other default
+    df_costs_for_report = df_with_costs[cost_report_cols]
+
+    # IMPORTANT: Sort by order name BEFORE adding TOTAL rows to prevent misplacement.
+    df_costs_for_report_sorted = df_costs_for_report.sort_values(by='Name').reset_index(drop=True)
+
+    # Transform the sorted data to add TOTAL rows
+    df_costs_transformed = transform_cost_df_for_reporting(df_costs_for_report_sorted)
+
+    # The invoice summary is calculated on the original, untransformed cost data
     df_invoice = create_invoice_summary(df_with_costs, cost_first_sku, cost_next_sku, cost_per_piece)
+
     return {
         'All Orders': report_df,
         'Without Package Protection': df_no_protection,
