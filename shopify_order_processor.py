@@ -250,6 +250,50 @@ def create_invoice_summary(df_with_costs, cost_first_sku, cost_next_sku, cost_pe
     }
     return pd.DataFrame(summary_data)
 
+def transform_cost_df_for_reporting(df_costs):
+    """
+    Transforms the cost calculation DataFrame to include a summary 'TOTAL' row for each order.
+
+    Args:
+        df_costs (pd.DataFrame): The DataFrame from the `calculate_costs` function.
+
+    Returns:
+        pd.DataFrame: A new DataFrame with a 'TOTAL' row for each order, ready for reporting.
+    """
+    if df_costs.empty:
+        return df_costs
+
+    processed_orders = []
+    for name, group in df_costs.groupby('Name'):
+        # Calculate totals for the group
+        total_quantity = group['Lineitem quantity'].sum()
+        total_sku_cost = group['SKU Cost'].sum()
+        total_quantity_cost = group['Quantity Cost'].sum()
+        # Total order cost is the same for all rows in the group
+        total_order_cost = group['Total Order Cost'].iloc[0]
+
+        # Create the 'TOTAL' row
+        total_row = pd.DataFrame([{
+            'Name': name,
+            'Lineitem name': 'TOTAL',
+            'Lineitem quantity': total_quantity,
+            'SKU Cost': total_sku_cost,
+            'Quantity Cost': total_quantity_cost,
+            'Total Order Cost': total_order_cost
+        }])
+
+        # Clear the 'Total Order Cost' from the individual item rows
+        group_copy = group.copy()
+        group_copy['Total Order Cost'] = pd.NA
+
+        # Combine the original group with the new total row
+        processed_group = pd.concat([group_copy, total_row], ignore_index=True)
+        processed_orders.append(processed_group)
+
+    # Combine all processed groups back into a single DataFrame
+    final_df = pd.concat(processed_orders, ignore_index=True)
+    return final_df
+
 def create_excel_report(sheets_data, output_filename):
     """
     Creates a multi-sheet Excel report from a dictionary of DataFrames.
@@ -319,11 +363,15 @@ def prepare_report_sheets(report_df, cost_first_sku, cost_next_sku, cost_per_pie
     """
     df_no_protection = report_df[~report_df['Lineitem name'].str.contains("Package protection", na=False)].copy()
     df_with_costs = calculate_costs(report_df, cost_first_sku, cost_next_sku, cost_per_piece)
+
+    # Transform the cost calculation sheet to have the new summary format
+    df_costs_transformed = transform_cost_df_for_reporting(df_with_costs)
+
     df_invoice = create_invoice_summary(df_with_costs, cost_first_sku, cost_next_sku, cost_per_piece)
     return {
         'All Orders': report_df,
         'Without Package Protection': df_no_protection,
-        'Cost Calculation': df_with_costs,
+        'Cost Calculation': df_costs_transformed,
         'Final Invoice': df_invoice
     }
 
