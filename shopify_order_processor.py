@@ -88,7 +88,7 @@ def load_and_validate_csv(file_path):
 
     dtype_map = {
         'Subtotal': float, 'Shipping': float, 'Taxes': float, 'Total': float,
-        'Discount Amount': float, 'Lineitem quantity': int, 'Lineitem price': float,
+        'Discount Amount': float, 'Lineitem price': float,
         'Lineitem compare at price': float, 'Lineitem requires shipping': bool,
         'Lineitem taxable': bool, 'Refunded Amount': float, 'Outstanding Balance': float,
         'Id': float, 'Lineitem discount': float, 'Tax 1 Value': float, 'Tax 2 Value': float,
@@ -114,6 +114,10 @@ def load_and_validate_csv(file_path):
     # Strip whitespace from 'Name' column to prevent grouping errors
     if 'Name' in df.columns:
         df['Name'] = df['Name'].astype(str).str.strip()
+
+    # Robustly handle 'Lineitem quantity' column
+    if 'Lineitem quantity' in df.columns:
+        df['Lineitem quantity'] = pd.to_numeric(df['Lineitem quantity'], errors='coerce').fillna(0).astype(int)
 
 
     logging.info("Successfully loaded and validated the input file.")
